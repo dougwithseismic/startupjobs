@@ -1,0 +1,302 @@
+[
+  {
+    "query": "React developer",
+    "expectedSourceIds": [103829, 103639, 103153, 103763, 103553, 103983, 101189, 104141, 103375, 103737, 103551, 91067, 104063, 103537, 104013],
+    "category": "exact-match",
+    "description": "Jobs with React in tech_entities. Includes fullstack, frontend, backend, and mobile roles that list React."
+  },
+  {
+    "query": "Python engineer",
+    "expectedSourceIds": [103915, 103639, 103153, 103763, 102959, 103553, 103731, 102633, 104141, 102607, 104167, 103375, 103737, 104043, 103455],
+    "category": "exact-match",
+    "description": "Jobs with Python in tech_entities. Covers backend, ML, data engineering, platform, and devops roles."
+  },
+  {
+    "query": "DevOps engineer",
+    "expectedSourceIds": [103375, 104033, 103455],
+    "category": "exact-match",
+    "description": "Jobs with DevOps in title or main_area (DevOps specialista). 103375 has DevOps in title, 103639 has DevSecOps."
+  },
+  {
+    "query": "Kubernetes",
+    "expectedSourceIds": [103763, 103643, 104149, 103731, 104141, 104033, 103551],
+    "category": "exact-match",
+    "description": "Jobs listing Kubernetes explicitly in tech_entities."
+  },
+  {
+    "query": "TypeScript developer",
+    "expectedSourceIds": [103639, 103553, 103983, 104149, 104141, 103375, 103551, 91067, 103537, 104013],
+    "category": "exact-match",
+    "description": "Jobs with TypeScript in tech_entities across fullstack, frontend, and backend roles."
+  },
+  {
+    "query": "Java developer",
+    "expectedSourceIds": [103153, 103553, 103989, 95739, 103455],
+    "category": "exact-match",
+    "description": "Jobs listing Java in tech_entities. Includes technical leaders, lead developers, and platform engineers."
+  },
+  {
+    "query": "Node.js developer",
+    "expectedSourceIds": [104149, 104141, 104095, 91067, 103537, 104013],
+    "category": "exact-match",
+    "description": "Jobs with Node.js explicitly in tech_entities."
+  },
+  {
+    "query": "Docker",
+    "expectedSourceIds": [103915, 103541, 103153, 103763, 103983, 101189, 104149, 103731, 104141, 104033, 103737, 104013],
+    "category": "exact-match",
+    "description": "Jobs listing Docker in tech_entities. Common across backend, devops, and fullstack roles."
+  },
+  {
+    "query": "Salesforce",
+    "expectedSourceIds": [103989],
+    "category": "exact-match",
+    "description": "Exact match on Salesforce in title and tech_entities. Single Salesforce Developer listing."
+  },
+  {
+    "query": "Scala developer",
+    "expectedSourceIds": [104161],
+    "category": "exact-match",
+    "description": "Exact match for Scala in title and tech_entities. Single Junior Scala Developer listing."
+  },
+  {
+    "query": "frontend web developer",
+    "expectedSourceIds": [104011, 103551, 104063, 103537, 91067, 104141, 103639, 104013, 103983],
+    "category": "semantic",
+    "description": "Semantic match for frontend roles: Front-End/Full-Stack jobs with React, Vue.js, Next.js, or frontend in tech_entities."
+  },
+  {
+    "query": "cloud infrastructure engineer",
+    "expectedSourceIds": [104033, 102607, 103541, 104149, 103639, 103983, 103153],
+    "category": "semantic",
+    "description": "Semantic match for cloud/infra: DevOps specialists, platform engineers, system admins using AWS/Azure/GCP/Terraform."
+  },
+  {
+    "query": "data science",
+    "expectedSourceIds": [102959, 103731, 94923, 103643, 104043, 103537],
+    "category": "semantic",
+    "description": "Semantic match: ML engineers, data engineers, AI roles with machine learning, data pipelines, analytics skills."
+  },
+  {
+    "query": "backend API developer",
+    "expectedSourceIds": [103763, 104095, 103915, 103469, 101189, 104149, 103553, 103639, 103579],
+    "category": "semantic",
+    "description": "Semantic match for backend + API: Back-End roles with API design, backend development, REST API design."
+  },
+  {
+    "query": "mobile app developer",
+    "expectedSourceIds": [103829, 103737, 95739],
+    "category": "semantic",
+    "description": "Semantic match for mobile development: React Native, iOS, Android, Swift, Kotlin roles."
+  },
+  {
+    "query": "machine learning engineer",
+    "expectedSourceIds": [103731, 103643, 94923, 104043, 103537, 104095, 103737],
+    "category": "semantic",
+    "description": "Semantic match: jobs with explicit machine learning, ML/AI, MLOps in tech_entities."
+  },
+  {
+    "query": "Linux system administrator",
+    "expectedSourceIds": [103541, 102633, 102607, 104167],
+    "category": "semantic",
+    "description": "Semantic match for sysadmin/Linux: System admin roles or jobs with Linux, system administration in tech_entities."
+  },
+  {
+    "query": "infrastructure automation",
+    "expectedSourceIds": [102607, 103983, 104033, 103541, 103639, 103153, 104149],
+    "category": "semantic",
+    "description": "Semantic match: roles using Ansible, Terraform, automation tools for infrastructure management."
+  },
+  {
+    "query": "cybersecurity specialist",
+    "expectedSourceIds": [103541, 102633, 104149, 95739, 103953, 103697],
+    "category": "semantic",
+    "description": "Semantic match: jobs in cybersecurity industry with security-related tech or network security skills."
+  },
+  {
+    "query": "AI artificial intelligence developer",
+    "expectedSourceIds": [103643, 94923, 104043, 103537, 103679, 103979, 103731],
+    "category": "semantic",
+    "description": "Semantic match: jobs with AI, GenAI, ML/AI, AI solution design in tech_entities or AI/ML industry."
+  },
+  {
+    "query": "React TypeScript",
+    "expectedSourceIds": [103639, 103553, 103983, 104141, 103375, 103551, 91067, 103537, 104013],
+    "category": "skill-combo",
+    "description": "Skill combo: jobs that have BOTH React AND TypeScript in tech_entities."
+  },
+  {
+    "query": "Python Docker",
+    "expectedSourceIds": [103915, 103153, 103763, 103731, 104141, 103737],
+    "category": "skill-combo",
+    "description": "Skill combo: jobs with BOTH Python AND Docker in tech_entities."
+  },
+  {
+    "query": "Python AWS",
+    "expectedSourceIds": [103639, 103153, 103375, 104043],
+    "category": "skill-combo",
+    "description": "Skill combo: jobs with BOTH Python AND AWS in tech_entities."
+  },
+  {
+    "query": "Java Spring Boot",
+    "expectedSourceIds": [103153],
+    "category": "skill-combo",
+    "description": "Skill combo: jobs with BOTH Java AND Spring Boot. Only 103153 (Lead Developer - Pharma Tech) has both; 103737 has Spring Boot but JavaScript not Java."
+  },
+  {
+    "query": "Kubernetes Terraform",
+    "expectedSourceIds": [104149, 104033],
+    "category": "skill-combo",
+    "description": "Skill combo: jobs with BOTH Kubernetes AND Terraform in tech_entities."
+  },
+  {
+    "query": "React Next.js",
+    "expectedSourceIds": [104141, 103737, 103551, 91067, 103537],
+    "category": "skill-combo",
+    "description": "Skill combo: jobs with BOTH React AND Next.js in tech_entities."
+  },
+  {
+    "query": "PostgreSQL Python",
+    "expectedSourceIds": [103915, 103639, 103153, 103763, 104141],
+    "category": "skill-combo",
+    "description": "Skill combo: jobs with BOTH PostgreSQL AND Python in tech_entities."
+  },
+  {
+    "query": "Node.js TypeScript React",
+    "expectedSourceIds": [104141, 91067, 103537, 104013],
+    "category": "skill-combo",
+    "description": "Skill combo: jobs with all three Node.js, TypeScript, AND React in tech_entities."
+  },
+  {
+    "query": "fintech jobs",
+    "expectedSourceIds": [103915, 102959, 102677, 104171, 103953, 104011, 104181, 101189, 103731, 100377, 95739, 103565, 104053, 102607, 103737, 103469, 103537],
+    "category": "industry",
+    "description": "Industry filter: all jobs with 'fintech' in their industries array."
+  },
+  {
+    "query": "healthcare technology",
+    "expectedSourceIds": [104171, 101189, 94923, 103737, 100339, 103537],
+    "category": "industry",
+    "description": "Industry filter: jobs with 'healthtech' in industries array."
+  },
+  {
+    "query": "e-commerce developer",
+    "expectedSourceIds": [103829, 103553, 103983, 101189, 104141, 103737, 103551, 91067, 104063, 103537],
+    "category": "industry",
+    "description": "Industry filter intersected with developer roles: jobs with 'e-commerce' industry AND a developer main_area."
+  },
+  {
+    "query": "gaming industry",
+    "expectedSourceIds": [103483, 104043, 104053, 104123],
+    "category": "industry",
+    "description": "Industry filter: jobs with 'gaming' or 'esports' in industries array."
+  },
+  {
+    "query": "cybersecurity jobs",
+    "expectedSourceIds": [103979, 103541, 103639, 104171, 103953, 104011, 103697, 104149, 102633, 94923, 100377, 95739, 103375, 103737, 103537, 101407],
+    "category": "industry",
+    "description": "Industry filter: all jobs with 'cybersecurity' in industries array."
+  },
+  {
+    "query": "energy sector",
+    "expectedSourceIds": [104161, 91067, 101407],
+    "category": "industry",
+    "description": "Industry filter: jobs with 'energy' in industries array."
+  },
+  {
+    "query": "remote developer",
+    "expectedSourceIds": [103829, 103915, 103639, 103763, 103553, 103983, 103989, 102633, 103579, 95739, 104095, 104033, 103737, 103551, 104043, 103469],
+    "category": "remote",
+    "description": "Remote filter + developer role: jobs where is_remote=true AND role involves development or engineering."
+  },
+  {
+    "query": "remote React jobs",
+    "expectedSourceIds": [103829, 103639, 103763, 103553, 103983, 103737, 103551],
+    "category": "remote",
+    "description": "Remote filter + skill: jobs where is_remote=true AND React is in tech_entities."
+  },
+  {
+    "query": "remote Python engineer",
+    "expectedSourceIds": [103915, 103639, 103763, 103553, 102633, 103737, 104043],
+    "category": "remote",
+    "description": "Remote filter + skill: jobs where is_remote=true AND Python is in tech_entities."
+  },
+  {
+    "query": "remote backend engineer",
+    "expectedSourceIds": [103915, 103639, 103763, 103553, 103989, 104095, 103469],
+    "category": "remote",
+    "description": "Remote filter + backend: is_remote=true AND main_area is Back-End or backend in title/tech."
+  },
+  {
+    "query": "senior backend developer",
+    "expectedSourceIds": [103915, 103639, 103153, 103763, 103553, 101189, 104149, 103731, 103989, 103565, 104095, 103469, 104043],
+    "category": "seniority",
+    "description": "Seniority + role: jobs with 'senior' in seniorities AND Back-End/backend main_area or backend in tech."
+  },
+  {
+    "query": "junior frontend developer",
+    "expectedSourceIds": [104063],
+    "category": "seniority",
+    "description": "Seniority + role: jobs with 'junior' in seniorities AND Front-End main_area. Only one match in dataset."
+  },
+  {
+    "query": "medior Java developer",
+    "expectedSourceIds": [103153, 103989],
+    "category": "seniority",
+    "description": "Seniority + skill: jobs with 'medior' in seniorities AND Java in tech_entities."
+  },
+  {
+    "query": "senior fullstack engineer",
+    "expectedSourceIds": [103639, 103153, 103983, 104141, 103565, 104043, 103469, 91067, 103537],
+    "category": "seniority",
+    "description": "Seniority + role: jobs with 'senior' in seniorities AND Full-Stack in main_area or fullstack/full stack in title."
+  },
+  {
+    "query": "product designer",
+    "expectedSourceIds": [102791],
+    "category": "role-type",
+    "description": "Non-technical role: exact match on Senior Product Designer with UX/UI design skills."
+  },
+  {
+    "query": "project manager",
+    "expectedSourceIds": [103589, 101209, 100377],
+    "category": "role-type",
+    "description": "Non-technical role: jobs with Projektovy manzer main_area or project manager in title."
+  },
+  {
+    "query": "sales representative",
+    "expectedSourceIds": [103395, 104049, 103669, 103985, 100339, 103645],
+    "category": "role-type",
+    "description": "Non-technical role: Obchodni zastupce main_area or sales specialist/representative roles."
+  },
+  {
+    "query": "marketing manager",
+    "expectedSourceIds": [103599, 103993, 101435, 103623, 103961],
+    "category": "role-type",
+    "description": "Non-technical role: marketing/brand/PR roles with marketing strategy, brand management, or content marketing skills."
+  },
+  {
+    "query": "developer",
+    "expectedSourceIds": [103829, 103915, 103639, 103153, 103763, 104161, 102959, 103553, 103983, 101189, 104149, 103731, 103989, 103579, 95739, 104141, 103565, 104095, 103375, 103737, 103551, 104043, 103469, 91067, 104063, 103537, 104013, 104011],
+    "category": "edge-case",
+    "description": "Very broad query: should match a large number of developer/engineer roles across all specializations. Tests recall on a generic term."
+  },
+  {
+    "query": "Rust blockchain senior remote",
+    "expectedSourceIds": [103469],
+    "category": "edge-case",
+    "description": "Highly specific multi-filter: Rust + senior + remote. Only 103469 (Senior Backend Engineer Rust/Go/C++ Fintech, remote) partially matches. Tests precision."
+  },
+  {
+    "query": "vývojář",
+    "expectedSourceIds": [103915, 103763, 103153, 103983, 104063, 103551, 104013],
+    "category": "edge-case",
+    "description": "Czech language query meaning 'developer'. Should match Czech-language developer roles. 103915 has vyvojar in title; others are Czech-detected developer/frontend/fullstack roles."
+  },
+  {
+    "query": "Go Kafka distributed systems",
+    "expectedSourceIds": [103469],
+    "category": "edge-case",
+    "description": "Niche skill combo: Go + Kafka in tech_entities. Only 103469 (Senior Backend Engineer Rust/Go/C++) has both Go and Kafka."
+  }
+]

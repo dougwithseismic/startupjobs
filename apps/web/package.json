@@ -11,15 +11,26 @@
     "check-types": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@react-sigma/core": "^5.0.6",
     "@repo/ui": "workspace:*",
+    "@tailwindcss/postcss": "^4.3.0",
+    "dotenv": "^17.4.2",
+    "graphology": "^0.26.0",
+    "graphology-layout-forceatlas2": "^0.10.1",
+    "graphology-types": "^0.24.8",
     "next": "16.2.0",
+    "pg": "^8.21.0",
+    "postcss": "^8.5.14",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "sigma": "^3.0.3",
+    "tailwindcss": "^4.3.0"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^22.15.3",
+    "@types/pg": "^8.20.0",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
     "eslint": "^9.39.1",
