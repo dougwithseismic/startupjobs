@@ -23,7 +23,7 @@ Return ONLY valid JSON (no markdown, no code fences):
 
   try {
     const raw = await ollamaGenerate(prompt, {
-      model: "gemma3:4b",
+      model: "gemma4",
       maxTokens: 512,
     });
 

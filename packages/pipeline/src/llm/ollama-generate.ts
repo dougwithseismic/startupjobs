@@ -53,9 +53,23 @@ export function parseLlmJson<T>(text: string): T | null {
     .replace(/```/g, "");
   const match = cleaned.match(/\{[\s\S]*\}/);
   if (!match) return null;
+
+  // Try direct parse first
   try {
     return JSON.parse(match[0]) as T;
   } catch {
-    return null;
+    // Repair common LLM JSON issues: unescaped control chars inside strings
+    const repaired = match[0]
+      .replace(/[\x00-\x1f]/g, (ch) => {
+        if (ch === "\n") return "\\n";
+        if (ch === "\r") return "\\r";
+        if (ch === "\t") return "\\t";
+        return "";
+      });
+    try {
+      return JSON.parse(repaired) as T;
+    } catch {
+      return null;
+    }
   }
 }

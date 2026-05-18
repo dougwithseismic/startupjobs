@@ -1,7 +1,14 @@
 import { sql } from "drizzle-orm";
 import type { Db } from "../db/connection.js";
-import { embedTexts } from "../embeddings/ollama.js";
-import { normalizeEntityName } from "../llm/normalize.js";
+import { parseSearchQuery } from "./query-parser.js";
+import { expandQueryToEntityNames, kgSearch } from "./kg-search.js";
+import {
+  structuredSearch,
+  hasStructuredCriteria,
+  type StructuredCriteria,
+} from "./structured-score.js";
+import { weightedRRF, type ChannelInput } from "./fusion.js";
+import { llmRerank, type RerankCandidate } from "./reranker.js";
 
 export interface SearchOptions {
   query: string;
@@ -9,7 +16,12 @@ export interface SearchOptions {
   requiredSkills?: string[];
   requiredTech?: string[];
   industry?: string[];
+  seniority?: string[];
+  location?: string;
   isRemote?: boolean;
+  salaryMin?: number;
+  salaryMax?: number;
+  useReranker?: boolean;
 }
 
 export interface SearchResult {
@@ -21,146 +33,176 @@ export interface SearchResult {
   seniorities: unknown;
   is_remote: boolean;
   rrf_score: number;
-  vector_rank: number;
   text_rank: number;
+  kg_rank: number;
+  structured_rank: number;
   matched_entities: string | null;
 }
 
-const RRF_K = 60;
+const WEIGHTS = {
+  text: 0.35,
+  kg: 0.35,
+  structured: 0.20,
+  expansion: 0.10,
+};
 
 export async function hybridSearch(
   db: Db,
   options: SearchOptions,
 ): Promise<SearchResult[]> {
   const limit = options.limit ?? 20;
-  const candidatePool = limit * 3;
+  const candidatePool = limit * 5;
 
-  const [queryEmbedding] = await embedTexts([
-    `search_query: ${options.query}`,
-  ]);
+  const parsed = parseSearchQuery(options.query);
 
-  const embeddingLiteral = `[${queryEmbedding!.join(",")}]`;
+  // --- Channel 1: BM25 Full-Text Search (weighted fields) ---
+  const textQuery = parsed.textQuery || options.query;
+  const textResults = await db.execute(sql`
+    SELECT id, source_id, title, company, locations, seniorities, is_remote,
+           ts_rank_cd(
+             setweight(to_tsvector('english', coalesce(title_en, title)), 'A') ||
+             setweight(to_tsvector('english', coalesce(company, '')), 'B') ||
+             setweight(to_tsvector('english', coalesce(description_en, description)), 'D'),
+             websearch_to_tsquery('english', ${textQuery})
+           ) AS score,
+           ROW_NUMBER() OVER (
+             ORDER BY ts_rank_cd(
+               setweight(to_tsvector('english', coalesce(title_en, title)), 'A') ||
+               setweight(to_tsvector('english', coalesce(company, '')), 'B') ||
+               setweight(to_tsvector('english', coalesce(description_en, description)), 'D'),
+               websearch_to_tsquery('english', ${textQuery})
+             ) DESC
+           ) AS rank
+    FROM job_listings
+    WHERE (
+      setweight(to_tsvector('english', coalesce(title_en, title)), 'A') ||
+      setweight(to_tsvector('english', coalesce(company, '')), 'B') ||
+      setweight(to_tsvector('english', coalesce(description_en, description)), 'D')
+    ) @@ websearch_to_tsquery('english', ${textQuery})
+    LIMIT ${candidatePool}
+  `);
 
-  const hasGraphFilters =
-    (options.requiredSkills?.length ?? 0) > 0 ||
-    (options.requiredTech?.length ?? 0) > 0 ||
-    (options.industry?.length ?? 0) > 0;
-
-  if (!hasGraphFilters) {
-    const results = await db.execute(sql`
-      WITH vector_search AS (
-        SELECT id, source_id, title, company, locations, seniorities, is_remote,
-               ROW_NUMBER() OVER (ORDER BY embedding <=> ${embeddingLiteral}::vector) AS rank
-        FROM job_listings
-        WHERE embedding IS NOT NULL
-        ORDER BY embedding <=> ${embeddingLiteral}::vector
-        LIMIT ${candidatePool}
-      ),
-      text_search AS (
-        SELECT id, source_id, title, company, locations, seniorities, is_remote,
-               ROW_NUMBER() OVER (
-                 ORDER BY ts_rank(
-                   to_tsvector('english', coalesce(title, '') || ' ' || coalesce(description, '') || ' ' || coalesce(company, '')),
-                   websearch_to_tsquery('english', ${options.query})
-                 ) DESC
-               ) AS rank
-        FROM job_listings
-        WHERE to_tsvector('english', coalesce(title, '') || ' ' || coalesce(description, '') || ' ' || coalesce(company, ''))
-              @@ websearch_to_tsquery('english', ${options.query})
-        LIMIT ${candidatePool}
-      ),
-      combined AS (
-        SELECT
-          COALESCE(v.id, t.id) AS id,
-          COALESCE(v.source_id, t.source_id) AS source_id,
-          COALESCE(v.title, t.title) AS title,
-          COALESCE(v.company, t.company) AS company,
-          COALESCE(v.locations, t.locations) AS locations,
-          COALESCE(v.seniorities, t.seniorities) AS seniorities,
-          COALESCE(v.is_remote, t.is_remote) AS is_remote,
-          COALESCE(1.0 / (${RRF_K} + v.rank), 0) + COALESCE(1.0 / (${RRF_K} + t.rank), 0) AS rrf_score,
-          COALESCE(v.rank, 999) AS vector_rank,
-          COALESCE(t.rank, 999) AS text_rank,
-          NULL::text AS matched_entities
-        FROM vector_search v
-        FULL OUTER JOIN text_search t ON v.id = t.id
-      )
-      SELECT * FROM combined
-      ORDER BY rrf_score DESC
-      LIMIT ${limit}
-    `);
-
-    return results.rows as unknown as SearchResult[];
-  }
-
-  const allFilters = [
+  // --- Channel 2: Knowledge Graph Search ---
+  const explicitEntities = [
     ...(options.requiredSkills ?? []),
     ...(options.requiredTech ?? []),
     ...(options.industry ?? []),
   ];
-  const normalizedFilters = allFilters.map(normalizeEntityName);
-  const pgArray = `{${normalizedFilters.join(",")}}`;
+  const expandedNames = expandQueryToEntityNames(textQuery);
+  const allEntityNames = [
+    ...explicitEntities.map((e) => e.toLowerCase().replace(/[^a-z0-9+#.]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "")),
+    ...expandedNames,
+  ];
+  const uniqueEntityNames = [...new Set(allEntityNames)];
 
-  const results = await db.execute(sql`
-    WITH graph_filtered AS (
-      SELECT
-        je.job_id,
-        string_agg(DISTINCT e.name, ', ') AS matched_entities,
-        COUNT(DISTINCT e.normalized_name) AS match_count
-      FROM job_entities je
-      JOIN entities e ON e.id = je.entity_id
-      WHERE e.normalized_name = ANY(${pgArray}::text[])
-      GROUP BY je.job_id
-    ),
-    vector_search AS (
-      SELECT jl.id, jl.source_id, jl.title, jl.company, jl.locations,
-             jl.seniorities, jl.is_remote, gf.matched_entities, gf.match_count,
-             ROW_NUMBER() OVER (ORDER BY jl.embedding <=> ${embeddingLiteral}::vector) AS rank
-      FROM job_listings jl
-      JOIN graph_filtered gf ON gf.job_id = jl.id
-      WHERE jl.embedding IS NOT NULL
-      ORDER BY jl.embedding <=> ${embeddingLiteral}::vector
-      LIMIT ${candidatePool}
-    ),
-    text_search AS (
-      SELECT jl.id, jl.source_id, jl.title, jl.company, jl.locations,
-             jl.seniorities, jl.is_remote, gf.matched_entities, gf.match_count,
-             ROW_NUMBER() OVER (
-               ORDER BY ts_rank(
-                 to_tsvector('english', coalesce(jl.title, '') || ' ' || coalesce(jl.description, '') || ' ' || coalesce(jl.company, '')),
-                 websearch_to_tsquery('english', ${options.query})
-               ) DESC
-             ) AS rank
-      FROM job_listings jl
-      JOIN graph_filtered gf ON gf.job_id = jl.id
-      WHERE to_tsvector('english', coalesce(jl.title, '') || ' ' || coalesce(jl.description, '') || ' ' || coalesce(jl.company, ''))
-            @@ websearch_to_tsquery('english', ${options.query})
-      LIMIT ${candidatePool}
-    ),
-    combined AS (
-      SELECT
-        COALESCE(v.id, t.id) AS id,
-        COALESCE(v.source_id, t.source_id) AS source_id,
-        COALESCE(v.title, t.title) AS title,
-        COALESCE(v.company, t.company) AS company,
-        COALESCE(v.locations, t.locations) AS locations,
-        COALESCE(v.seniorities, t.seniorities) AS seniorities,
-        COALESCE(v.is_remote, t.is_remote) AS is_remote,
-        (
-          COALESCE(1.0 / (${RRF_K} + v.rank), 0) +
-          COALESCE(1.0 / (${RRF_K} + t.rank), 0) +
-          COALESCE(v.match_count, t.match_count)::float * 0.01
-        ) AS rrf_score,
-        COALESCE(v.rank, 999) AS vector_rank,
-        COALESCE(t.rank, 999) AS text_rank,
-        COALESCE(v.matched_entities, t.matched_entities) AS matched_entities
-      FROM vector_search v
-      FULL OUTER JOIN text_search t ON v.id = t.id
-    )
-    SELECT * FROM combined
-    ORDER BY rrf_score DESC
-    LIMIT ${limit}
+  const kgResults = await kgSearch(db, uniqueEntityNames, candidatePool);
+
+  // --- Channel 3: Structured Data Search ---
+  const structuredCriteria: StructuredCriteria = {
+    seniority: options.seniority?.length
+      ? options.seniority
+      : parsed.seniority.length
+        ? parsed.seniority
+        : undefined,
+    isRemote: options.isRemote ?? parsed.isRemote,
+    location: options.location,
+    salaryMin: options.salaryMin ?? parsed.salaryMin,
+    salaryMax: options.salaryMax ?? parsed.salaryMax,
+  };
+
+  const structuredResults = await structuredSearch(
+    db,
+    structuredCriteria,
+    candidatePool,
+  );
+
+  // --- Fuse all channels ---
+  const channels: ChannelInput[] = [
+    {
+      name: "text",
+      weight: WEIGHTS.text,
+      items: (textResults.rows as Array<{ id: string; rank: number }>).map(
+        (r) => ({ id: r.id, rank: Number(r.rank) }),
+      ),
+    },
+    {
+      name: "kg",
+      weight: explicitEntities.length > 0 ? WEIGHTS.kg + WEIGHTS.expansion : WEIGHTS.kg,
+      items: kgResults.map((r, i) => ({ id: r.job_id, rank: i + 1 })),
+    },
+  ];
+
+  if (hasStructuredCriteria(structuredCriteria)) {
+    channels.push({
+      name: "structured",
+      weight: WEIGHTS.structured,
+      items: structuredResults.map((r, i) => ({ id: r.id, rank: i + 1 })),
+    });
+  }
+
+  const fused = weightedRRF(channels);
+
+  // --- Hydrate top results ---
+  const topIds = fused.slice(0, options.useReranker ? limit * 2 : limit).map((f) => f.id);
+  if (topIds.length === 0) return [];
+
+  const pgIds = `{${topIds.join(",")}}`;
+  const hydrated = await db.execute(sql`
+    SELECT id, source_id, title, company, locations, seniorities, is_remote
+    FROM job_listings
+    WHERE id = ANY(${pgIds}::uuid[])
   `);
 
-  return results.rows as unknown as SearchResult[];
+  const jobMap = new Map(
+    (hydrated.rows as Array<Record<string, unknown>>).map((r) => [r.id as string, r]),
+  );
+  const kgMap = new Map(kgResults.map((r) => [r.job_id, r]));
+
+  let orderedIds = topIds;
+
+  // --- Optional LLM Rerank ---
+  if (options.useReranker) {
+    const candidates: RerankCandidate[] = topIds
+      .map((id) => {
+        const job = jobMap.get(id);
+        if (!job) return null;
+        return {
+          id,
+          title: job.title as string,
+          company: job.company as string,
+          locations: job.locations as string | null,
+          seniorities: job.seniorities,
+          is_remote: job.is_remote as boolean,
+        };
+      })
+      .filter(Boolean) as RerankCandidate[];
+
+    orderedIds = await llmRerank(options.query, candidates, { topN: limit * 2 });
+    orderedIds = orderedIds.slice(0, limit);
+  }
+
+  // --- Build final results ---
+  return orderedIds
+    .map((id) => {
+      const job = jobMap.get(id);
+      if (!job) return null;
+      const fusedEntry = fused.find((f) => f.id === id);
+      const kgEntry = kgMap.get(id);
+
+      return {
+        id,
+        source_id: job.source_id as number,
+        title: job.title as string,
+        company: job.company as string,
+        locations: job.locations as string | null,
+        seniorities: job.seniorities,
+        is_remote: job.is_remote as boolean,
+        rrf_score: fusedEntry?.score ?? 0,
+        text_rank: fusedEntry?.channelRanks["text"] ?? 999,
+        kg_rank: fusedEntry?.channelRanks["kg"] ?? 999,
+        structured_rank: fusedEntry?.channelRanks["structured"] ?? 999,
+        matched_entities: kgEntry?.matched_entities ?? null,
+      } satisfies SearchResult;
+    })
+    .filter(Boolean) as SearchResult[];
 }

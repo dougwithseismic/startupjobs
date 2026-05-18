@@ -1,6 +1,6 @@
 export const TRANSLATION_PROMPT_V1 = {
   version: "1",
-  model: "gemma3:4b",
+  model: "gemma4",
   description: "Language detection and Czech→English translation for job listings",
   prompt: `You are a translation and language detection system. Analyze the job listing below.
 

@@ -1,22 +1,10 @@
 import { createScorer } from "@mastra/core/evals";
-import { embedTexts } from "../../embeddings/ollama.js";
-
-function cosineSim(a: number[], b: number[]): number {
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i]! * b[i]!;
-    normA += a[i]! * a[i]!;
-    normB += b[i]! * b[i]!;
-  }
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-}
+import { ollamaGenerate } from "../../llm/ollama-generate.js";
 
 export const translationQualityScorer = createScorer({
   id: "translation-quality",
   description:
-    "Evaluates translation quality via embedding cosine similarity against reference",
+    "Evaluates translation quality via LLM judge comparison against reference",
 })
   .preprocess(({ run }) => {
     const output = run.output as {
@@ -38,15 +26,28 @@ export const translationQualityScorer = createScorer({
       return { similarity: 0.5, skipped: true };
     }
 
-    const embeddings = await embedTexts([
-      `search_document: ${translated}`,
-      `search_document: ${reference}`,
-    ]);
+    const prompt = `Compare these two texts and rate their semantic similarity from 0.0 to 1.0.
+A score of 1.0 means they convey identical meaning, 0.0 means completely unrelated.
 
-    return {
-      similarity: cosineSim(embeddings[0]!, embeddings[1]!),
-      skipped: false,
-    };
+Text A: "${translated.slice(0, 1000)}"
+
+Text B: "${reference.slice(0, 1000)}"
+
+Respond with ONLY a number between 0.0 and 1.0.`;
+
+    try {
+      const response = await ollamaGenerate(prompt, {
+        model: "gemma4",
+        temperature: 0,
+      });
+      const score = parseFloat(response.trim());
+      return {
+        similarity: isNaN(score) ? 0.5 : Math.max(0, Math.min(1, score)),
+        skipped: false,
+      };
+    } catch {
+      return { similarity: 0.5, skipped: true };
+    }
   })
   .generateScore(({ results }) => {
     return results.analyzeStepResult!.similarity;
@@ -55,5 +56,5 @@ export const translationQualityScorer = createScorer({
     const { skipped } = results.analyzeStepResult!;
     if (skipped) return `Score: ${score.toFixed(3)} (no translation needed or no reference)`;
     const pass = score > 0.85 ? "PASS" : "FAIL";
-    return `[${pass}] Cosine similarity: ${score.toFixed(3)}`;
+    return `[${pass}] LLM similarity: ${score.toFixed(3)}`;
   });

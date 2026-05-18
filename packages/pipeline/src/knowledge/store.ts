@@ -13,7 +13,8 @@ type EntityType =
   | "platform"
   | "methodology"
   | "soft_skill"
-  | "industry";
+  | "industry"
+  | "spoken_language";
 
 type RelationType = "requires" | "prefers" | "belongs_to";
 
@@ -21,6 +22,7 @@ const TYPE_MAP: Record<keyof ExtractedEntities, EntityType> = {
   skills: "skill",
   technologies: "technology",
   languages: "language",
+  spokenLanguages: "spoken_language",
   frameworks: "framework",
   tools: "tool",
   platforms: "platform",
@@ -33,6 +35,7 @@ const RELATION_MAP: Record<keyof ExtractedEntities, RelationType> = {
   skills: "requires",
   technologies: "requires",
   languages: "requires",
+  spokenLanguages: "requires",
   frameworks: "requires",
   tools: "requires",
   platforms: "requires",

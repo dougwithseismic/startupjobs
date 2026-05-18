@@ -12,6 +12,6 @@ export async function* crawlAllOffers(
     if (page >= response.paginator.max) break;
     page++;
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }

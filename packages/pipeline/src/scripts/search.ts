@@ -4,14 +4,15 @@ import { createDb } from "../db/connection.js";
 import { hybridSearch } from "../search/hybrid-search.js";
 
 const args = process.argv.slice(2);
-const skillsFlag = args.findIndex((a) => a === "--skills");
-const techFlag = args.findIndex((a) => a === "--tech");
-const industryFlag = args.findIndex((a) => a === "--industry");
 
 let query = "";
 const requiredSkills: string[] = [];
 const requiredTech: string[] = [];
 const industry: string[] = [];
+const seniority: string[] = [];
+let location: string | undefined;
+let isRemote: boolean | undefined;
+let useReranker = false;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--skills" && args[i + 1]) {
@@ -20,6 +21,14 @@ for (let i = 0; i < args.length; i++) {
     requiredTech.push(...args[++i]!.split(","));
   } else if (args[i] === "--industry" && args[i + 1]) {
     industry.push(...args[++i]!.split(","));
+  } else if (args[i] === "--seniority" && args[i + 1]) {
+    seniority.push(...args[++i]!.split(","));
+  } else if (args[i] === "--location" && args[i + 1]) {
+    location = args[++i];
+  } else if (args[i] === "--remote") {
+    isRemote = true;
+  } else if (args[i] === "--rerank") {
+    useReranker = true;
   } else {
     query += (query ? " " : "") + args[i];
   }
@@ -27,7 +36,7 @@ for (let i = 0; i < args.length; i++) {
 
 if (!query) {
   console.error(
-    "Usage: pnpm search <query> [--skills react,typescript] [--tech docker] [--industry fintech]",
+    "Usage: pnpm search <query> [--skills react,typescript] [--tech docker] [--industry fintech] [--seniority senior] [--location prague] [--remote] [--rerank]",
   );
   process.exit(1);
 }
@@ -37,6 +46,10 @@ console.log(`Searching for: "${query}"`);
 if (requiredSkills.length) console.log(`  Skills filter: ${requiredSkills.join(", ")}`);
 if (requiredTech.length) console.log(`  Tech filter: ${requiredTech.join(", ")}`);
 if (industry.length) console.log(`  Industry filter: ${industry.join(", ")}`);
+if (seniority.length) console.log(`  Seniority filter: ${seniority.join(", ")}`);
+if (location) console.log(`  Location filter: ${location}`);
+if (isRemote) console.log(`  Remote only`);
+if (useReranker) console.log(`  LLM reranking enabled`);
 console.log("");
 
 const results = await hybridSearch(db, {
@@ -45,6 +58,10 @@ const results = await hybridSearch(db, {
   requiredSkills: requiredSkills.length ? requiredSkills : undefined,
   requiredTech: requiredTech.length ? requiredTech : undefined,
   industry: industry.length ? industry : undefined,
+  seniority: seniority.length ? seniority : undefined,
+  location,
+  isRemote,
+  useReranker,
 });
 
 for (const r of results) {
@@ -52,7 +69,7 @@ for (const r of results) {
   console.log(
     `[${Number(r.rrf_score).toFixed(4)}] ${r.title} @ ${r.company} (${r.locations ?? "N/A"})${remote}`,
   );
-  console.log(`         vector=#${r.vector_rank} text=#${r.text_rank}`);
+  console.log(`         text=#${r.text_rank} kg=#${r.kg_rank} struct=#${r.structured_rank}`);
   if (r.matched_entities) console.log(`         entities: ${r.matched_entities}`);
 }
 

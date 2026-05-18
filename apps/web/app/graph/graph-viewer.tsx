@@ -10,32 +10,25 @@ import "@react-sigma/core/lib/style.css";
 import Graph from "graphology";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 
-const TYPE_COLORS: Record<string, string> = {
-  job: "#003dff",
-  skill: "#00b341",
-  technology: "#0036db",
-  language: "#fe9a00",
-  framework: "#5583ff",
-  tool: "#6f767e",
-  platform: "#f0153c",
-  industry: "#ff6900",
-  methodology: "#009a30",
-  soft_skill: "#ffdf00",
-};
+type EntityType =
+  | "skill"
+  | "technology"
+  | "language"
+  | "spoken_language"
+  | "framework"
+  | "tool"
+  | "platform"
+  | "industry"
+  | "methodology"
+  | "soft_skill"
+  | "certification";
 
-const SEGMENT_ORDER = [
-  "skill", "technology", "language", "framework", "tool",
-  "platform", "methodology", "soft_skill", "industry",
-];
-
-const EDGE_DEFAULT_COLOR = "rgba(51,65,85,0.06)";
-const EDGE_HIGHLIGHT_COLOR = "rgba(0,61,255,0.7)";
-const NODE_DIM_OPACITY = 0.15;
+type NodeType = "job" | EntityType;
 
 interface GraphNode {
   id: string;
   label: string;
-  type: string;
+  type: NodeType;
   size: number;
 }
 
@@ -47,6 +40,250 @@ interface GraphEdge {
 interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
+}
+
+interface MatchedJob {
+  id: string;
+  label: string;
+}
+
+interface SelectionState {
+  items: { label: string; type: string }[];
+  matchCount: number;
+  jobList: MatchedJob[];
+}
+
+const TYPE_COLORS: Record<NodeType, string> = {
+  job: "#003dff",
+  skill: "#00b341",
+  technology: "#0036db",
+  language: "#fe9a00",
+  framework: "#5583ff",
+  tool: "#6f767e",
+  platform: "#f0153c",
+  industry: "#ff6900",
+  methodology: "#009a30",
+  soft_skill: "#ffdf00",
+  spoken_language: "#a855f7",
+  certification: "#14b8a6",
+};
+
+const SEGMENT_ORDER: EntityType[] = [
+  "skill", "technology", "language", "spoken_language", "framework", "tool",
+  "platform", "methodology", "soft_skill", "industry", "certification",
+];
+
+const EDGE_DEFAULT_COLOR = "rgba(51,65,85,0.06)";
+const EDGE_HIGHLIGHT_COLOR = "rgba(0,61,255,0.7)";
+const NODE_DIM_OPACITY = 0.15;
+const EMPTY_SELECTION: SelectionState = { items: [], matchCount: 0, jobList: [] };
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  if (hex.startsWith("rgba") || hex.startsWith("rgb")) {
+    const match = hex.match(/(\d+)/g);
+    if (match) return { r: parseInt(match[0]!, 10), g: parseInt(match[1]!, 10), b: parseInt(match[2]!, 10) };
+  }
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result
+    ? { r: parseInt(result[1]!, 16), g: parseInt(result[2]!, 16), b: parseInt(result[3]!, 16) }
+    : { r: 102, g: 102, b: 102 };
+}
+
+const DIM_COLOR_CACHE = new Map<string, string>();
+
+function dimColor(hex: string): string {
+  let cached = DIM_COLOR_CACHE.get(hex);
+  if (cached) return cached;
+  const rgb = hexToRgb(hex);
+  cached = `rgba(${rgb.r},${rgb.g},${rgb.b},${NODE_DIM_OPACITY})`;
+  DIM_COLOR_CACHE.set(hex, cached);
+  return cached;
+}
+
+interface HighlightState {
+  matchingJobs: Set<string>;
+  relatedEntities: Set<string>;
+  visible: Set<string>;
+}
+
+function computeHighlightState(
+  graph: Graph,
+  selectedNodes: Set<string>,
+): HighlightState {
+  const empty: HighlightState = {
+    matchingJobs: new Set(),
+    relatedEntities: new Set(),
+    visible: new Set(),
+  };
+
+  if (selectedNodes.size === 0) return empty;
+
+  const selectedEntities = new Set<string>();
+  const selectedJobs = new Set<string>();
+  for (const sel of selectedNodes) {
+    if (graph.getNodeAttribute(sel, "nodeType") === "job") {
+      selectedJobs.add(sel);
+    } else {
+      selectedEntities.add(sel);
+    }
+  }
+
+  const neighborSets = [...selectedEntities].map(
+    (sel) => new Set(graph.neighbors(sel)),
+  );
+
+  let matchingJobs: Set<string>;
+
+  if (selectedJobs.size > 0 && selectedEntities.size === 0) {
+    matchingJobs = new Set(selectedJobs);
+  } else if (selectedEntities.size > 0 && selectedJobs.size === 0) {
+    matchingJobs = new Set<string>();
+    if (neighborSets.length > 0) {
+      for (const candidate of neighborSets[0]!) {
+        if (
+          graph.getNodeAttribute(candidate, "nodeType") === "job" &&
+          neighborSets.every((s) => s.has(candidate))
+        ) {
+          matchingJobs.add(candidate);
+        }
+      }
+    }
+  } else {
+    matchingJobs = new Set<string>();
+    for (const jobId of selectedJobs) {
+      if (neighborSets.every((s) => s.has(jobId))) {
+        matchingJobs.add(jobId);
+      }
+    }
+  }
+
+  const relatedEntities = new Set<string>();
+  if (selectedJobs.size > 0 && selectedEntities.size === 0 && matchingJobs.size > 1) {
+    const jobArray = [...matchingJobs];
+    const jobNeighborSets = new Map<string, Set<string>>();
+    for (const j of jobArray) {
+      jobNeighborSets.set(j, new Set(graph.neighbors(j)));
+    }
+    const firstJobNeighbors = jobNeighborSets.get(jobArray[0]!)!;
+    for (const neighbor of firstJobNeighbors) {
+      if (graph.getNodeAttribute(neighbor, "nodeType") !== "job") {
+        if (jobArray.every((j) => jobNeighborSets.get(j)!.has(neighbor))) {
+          relatedEntities.add(neighbor);
+        }
+      }
+    }
+  } else {
+    for (const job of matchingJobs) {
+      for (const neighbor of graph.neighbors(job)) {
+        if (graph.getNodeAttribute(neighbor, "nodeType") !== "job") {
+          relatedEntities.add(neighbor);
+        }
+      }
+    }
+  }
+
+  return {
+    matchingJobs,
+    relatedEntities,
+    visible: new Set([...selectedNodes, ...matchingJobs, ...relatedEntities]),
+  };
+}
+
+function applyHighlight(
+  graph: Graph,
+  selectedNodes: Set<string>,
+  lockedNodes: Set<string>,
+  state: HighlightState,
+): void {
+  const { matchingJobs, visible } = state;
+
+  if (selectedNodes.size === 0) {
+    graph.forEachNode((n, attrs) => {
+      graph.mergeNodeAttributes(n, {
+        color: attrs.originalColor,
+        label: attrs.nodeType === "job" ? "" : attrs.originalLabel,
+        forceLabel: false,
+        highlighted: false,
+        zIndex: 0,
+      });
+    });
+    graph.forEachEdge((e) => {
+      graph.mergeEdgeAttributes(e, {
+        color: EDGE_DEFAULT_COLOR,
+        size: 0.4,
+        zIndex: 0,
+      });
+    });
+    return;
+  }
+
+  graph.forEachNode((n, a) => {
+    const isSelected = selectedNodes.has(n);
+    const isMatchingJob = matchingJobs.has(n);
+    const isRelated = state.relatedEntities.has(n);
+
+    if (isSelected) {
+      graph.mergeNodeAttributes(n, {
+        color: a.originalColor,
+        zIndex: 2,
+        label: a.originalLabel,
+        forceLabel: true,
+        highlighted: lockedNodes.has(n),
+      });
+    } else if (isMatchingJob) {
+      graph.mergeNodeAttributes(n, {
+        color: a.originalColor,
+        zIndex: 1,
+        label: a.originalLabel,
+        forceLabel: true,
+        highlighted: false,
+      });
+    } else if (isRelated) {
+      graph.mergeNodeAttributes(n, {
+        color: a.originalColor,
+        zIndex: 1,
+        label: a.originalLabel,
+        forceLabel: false,
+        highlighted: false,
+      });
+    } else {
+      graph.mergeNodeAttributes(n, {
+        color: dimColor(a.originalColor as string),
+        zIndex: 0,
+        label: a.nodeType === "job" ? "" : a.originalLabel,
+        forceLabel: false,
+        highlighted: false,
+      });
+    }
+  });
+
+  graph.forEachEdge((e, _a, src, tgt) => {
+    const srcVisible = visible.has(src);
+    const tgtVisible = visible.has(tgt);
+    const involvesMatchingJob = matchingJobs.has(src) || matchingJobs.has(tgt);
+
+    if (srcVisible && tgtVisible && involvesMatchingJob) {
+      const involvesSelected = selectedNodes.has(src) || selectedNodes.has(tgt);
+      graph.mergeEdgeAttributes(e, {
+        color: involvesSelected ? EDGE_HIGHLIGHT_COLOR : "rgba(0,61,255,0.2)",
+        size: involvesSelected ? 1.5 : 0.6,
+        zIndex: involvesSelected ? 1 : 0,
+      });
+    } else {
+      graph.mergeEdgeAttributes(e, {
+        color: "rgba(0,0,0,0)",
+        size: 0,
+        zIndex: 0,
+      });
+    }
+  });
+}
+
+function buildJobList(graph: Graph, matchingJobs: Set<string>): MatchedJob[] {
+  return [...matchingJobs].map((id) => ({
+    id,
+    label: graph.getNodeAttribute(id, "originalLabel") as string,
+  }));
 }
 
 function BuildGraph({ data }: { data: GraphData }) {
@@ -109,7 +346,7 @@ function BuildGraph({ data }: { data: GraphData }) {
 
       graph.addNode(node.id, {
         label: "",
-        size: 8,
+        size: 5,
         color: TYPE_COLORS.job,
         x: Math.cos(angle) * r,
         y: Math.sin(angle) * r,
@@ -120,12 +357,12 @@ function BuildGraph({ data }: { data: GraphData }) {
     }
 
     for (const edge of data.edges) {
-      try {
+      if (!graph.hasEdge(edge.source, edge.target)) {
         graph.addEdge(edge.source, edge.target, {
           size: 0.4,
           color: EDGE_DEFAULT_COLOR,
         });
-      } catch { /* skip dupes */ }
+      }
     }
 
     loadGraph(graph);
@@ -134,194 +371,34 @@ function BuildGraph({ data }: { data: GraphData }) {
   return null;
 }
 
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  if (hex.startsWith("rgba") || hex.startsWith("rgb")) {
-    const match = hex.match(/(\d+)/g);
-    if (match) return { r: parseInt(match[0]!, 10), g: parseInt(match[1]!, 10), b: parseInt(match[2]!, 10) };
-  }
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? { r: parseInt(result[1]!, 16), g: parseInt(result[2]!, 16), b: parseInt(result[3]!, 16) }
-    : { r: 102, g: 102, b: 102 };
-}
+function FilterHandler({ activeTypes }: { activeTypes: Set<string> }) {
+  const sigma = useSigma();
 
-const DIM_COLOR_CACHE = new Map<string, string>();
+  useEffect(() => {
+    const graph = sigma.getGraph();
+    if (graph.order === 0) return;
 
-function dimColor(hex: string): string {
-  let cached = DIM_COLOR_CACHE.get(hex);
-  if (cached) return cached;
-  const rgb = hexToRgb(hex);
-  cached = `rgba(${rgb.r},${rgb.g},${rgb.b},${NODE_DIM_OPACITY})`;
-  DIM_COLOR_CACHE.set(hex, cached);
-  return cached;
-}
-
-function applyHighlight(
-  graph: Graph,
-  selectedNodes: Set<string>,
-  lockedNodes: Set<string>,
-) {
-  if (selectedNodes.size === 0) {
     graph.forEachNode((n, attrs) => {
-      graph.setNodeAttribute(n, "color", attrs.originalColor);
-      graph.setNodeAttribute(n, "label", attrs.nodeType === "job" ? "" : attrs.originalLabel);
-      graph.setNodeAttribute(n, "forceLabel", false);
-      graph.setNodeAttribute(n, "highlighted", false);
-      graph.setNodeAttribute(n, "zIndex", 0);
+      const nodeType = attrs.nodeType as string;
+      graph.setNodeAttribute(n, "hidden", nodeType !== "job" && !activeTypes.has(nodeType));
     });
-    graph.forEachEdge((e) => {
-      graph.setEdgeAttribute(e, "color", EDGE_DEFAULT_COLOR);
-      graph.setEdgeAttribute(e, "size", 0.4);
-      graph.setEdgeAttribute(e, "zIndex", 0);
-    });
-    return new Set<string>();
-  }
 
-  const selectedEntities = new Set<string>();
-  const selectedJobs = new Set<string>();
-  for (const sel of selectedNodes) {
-    if (graph.getNodeAttribute(sel, "nodeType") === "job") {
-      selectedJobs.add(sel);
-    } else {
-      selectedEntities.add(sel);
-    }
-  }
+    sigma.refresh();
+  }, [sigma, activeTypes]);
 
-  let matchingJobs = new Set<string>();
-
-  if (selectedEntities.size > 0 && selectedJobs.size === 0) {
-    const neighborSets: Set<string>[] = [];
-    for (const sel of selectedEntities) {
-      neighborSets.push(new Set(graph.neighbors(sel)));
-    }
-    if (neighborSets.length > 0) {
-      for (const candidate of neighborSets[0]!) {
-        if (
-          graph.getNodeAttribute(candidate, "nodeType") === "job" &&
-          neighborSets.every((s) => s.has(candidate))
-        ) {
-          matchingJobs.add(candidate);
-        }
-      }
-    }
-  } else if (selectedJobs.size > 0 && selectedEntities.size === 0) {
-    matchingJobs = new Set(selectedJobs);
-  } else {
-    const neighborSets: Set<string>[] = [];
-    for (const sel of selectedEntities) {
-      neighborSets.push(new Set(graph.neighbors(sel)));
-    }
-    for (const jobId of selectedJobs) {
-      if (neighborSets.every((s) => s.has(jobId))) {
-        matchingJobs.add(jobId);
-      }
-    }
-  }
-
-  const relatedEntities = new Set<string>();
-  if (selectedJobs.size > 0 && selectedEntities.size === 0 && matchingJobs.size > 1) {
-    const jobArray = [...matchingJobs];
-    const firstJobNeighbors = new Set(graph.neighbors(jobArray[0]!));
-    for (const neighbor of firstJobNeighbors) {
-      if (graph.getNodeAttribute(neighbor, "nodeType") !== "job") {
-        const connectedToAll = jobArray.every((j) =>
-          graph.neighbors(j).includes(neighbor),
-        );
-        if (connectedToAll) relatedEntities.add(neighbor);
-      }
-    }
-  } else {
-    for (const job of matchingJobs) {
-      for (const neighbor of graph.neighbors(job)) {
-        if (graph.getNodeAttribute(neighbor, "nodeType") !== "job") {
-          relatedEntities.add(neighbor);
-        }
-      }
-    }
-  }
-
-  const visible = new Set<string>([
-    ...selectedNodes,
-    ...matchingJobs,
-    ...relatedEntities,
-  ]);
-
-  graph.forEachNode((n, a) => {
-    const isSelected = selectedNodes.has(n);
-    const isLocked = lockedNodes.has(n);
-    const isJob = a.nodeType === "job";
-    const isMatchingJob = matchingJobs.has(n);
-    const isRelated = relatedEntities.has(n);
-
-    if (isSelected) {
-      graph.setNodeAttribute(n, "color", a.originalColor);
-      graph.setNodeAttribute(n, "zIndex", 2);
-      graph.setNodeAttribute(n, "label", a.originalLabel);
-      graph.setNodeAttribute(n, "forceLabel", true);
-      graph.setNodeAttribute(n, "highlighted", isLocked);
-    } else if (isMatchingJob) {
-      graph.setNodeAttribute(n, "color", a.originalColor);
-      graph.setNodeAttribute(n, "zIndex", 1);
-      graph.setNodeAttribute(n, "label", a.originalLabel);
-      graph.setNodeAttribute(n, "forceLabel", true);
-      graph.setNodeAttribute(n, "highlighted", false);
-    } else if (isRelated) {
-      graph.setNodeAttribute(n, "color", a.originalColor);
-      graph.setNodeAttribute(n, "zIndex", 1);
-      graph.setNodeAttribute(n, "label", a.originalLabel);
-      graph.setNodeAttribute(n, "forceLabel", false);
-      graph.setNodeAttribute(n, "highlighted", false);
-    } else {
-      graph.setNodeAttribute(n, "color", dimColor(a.originalColor as string));
-      graph.setNodeAttribute(n, "zIndex", 0);
-      graph.setNodeAttribute(n, "label", isJob ? "" : a.originalLabel);
-      graph.setNodeAttribute(n, "forceLabel", false);
-      graph.setNodeAttribute(n, "highlighted", false);
-    }
-  });
-
-  graph.forEachEdge((e, _a, src, tgt) => {
-    const srcVisible = visible.has(src);
-    const tgtVisible = visible.has(tgt);
-    const involvesMatchingJob = matchingJobs.has(src) || matchingJobs.has(tgt);
-
-    if (srcVisible && tgtVisible && involvesMatchingJob) {
-      const involvesSelected = selectedNodes.has(src) || selectedNodes.has(tgt);
-      graph.setEdgeAttribute(e, "color", involvesSelected ? EDGE_HIGHLIGHT_COLOR : "rgba(0,61,255,0.2)");
-      graph.setEdgeAttribute(e, "size", involvesSelected ? 1.5 : 0.6);
-      graph.setEdgeAttribute(e, "zIndex", involvesSelected ? 1 : 0);
-    } else {
-      graph.setEdgeAttribute(e, "color", "rgba(0,0,0,0)");
-      graph.setEdgeAttribute(e, "size", 0);
-      graph.setEdgeAttribute(e, "zIndex", 0);
-    }
-  });
-
-  return matchingJobs;
+  return null;
 }
 
 function InteractionHandler({
   onSelectionChange,
 }: {
-  onSelectionChange: (selected: { label: string; type: string }[], matchCount: number) => void;
+  onSelectionChange: (selection: SelectionState) => void;
 }) {
   const sigma = useSigma();
   const registerEvents = useRegisterEvents();
   const tooltipRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<Set<string>>(new Set());
   const dragState = useRef<{ node: string; isDragging: boolean } | null>(null);
-  const hoverNode = useRef<string | null>(null);
-
-  const emitSelection = useCallback(
-    (graph: Graph, sel: Set<string>, matchCount: number) => {
-      const items = [...sel].map((n) => ({
-        label: graph.getNodeAttribute(n, "originalLabel") as string,
-        type: graph.getNodeAttribute(n, "nodeType") as string,
-      }));
-      onSelectionChange(items, matchCount);
-    },
-    [onSelectionChange],
-  );
 
   useEffect(() => {
     const graph = sigma.getGraph();
@@ -329,17 +406,17 @@ function InteractionHandler({
     registerEvents({
       enterNode: (event) => {
         if (dragState.current?.isDragging) return;
-        hoverNode.current = event.node;
 
         const combined = new Set(selectedRef.current);
         combined.add(event.node);
-        const matchingJobs = applyHighlight(graph, combined, selectedRef.current);
+        const state = computeHighlightState(graph, combined);
+        applyHighlight(graph, combined, selectedRef.current, state);
 
         const attrs = graph.getNodeAttributes(event.node);
         const tooltip = tooltipRef.current;
         if (tooltip) {
           const nodeType = (attrs.nodeType as string) ?? "";
-          const color = TYPE_COLORS[nodeType] ?? "#6f767e";
+          const color = TYPE_COLORS[nodeType as NodeType] ?? "#6f767e";
           const isJob = nodeType === "job";
           const entityCount = isJob ? graph.neighbors(event.node).length : 0;
           tooltip.innerHTML = `
@@ -348,7 +425,7 @@ function InteractionHandler({
             <div style="margin-top:4px;font-size:11px;color:#9a9fa5">${
               isJob
                 ? `${entityCount} connected entities`
-                : `${matchingJobs.size} matching jobs`
+                : `${state.matchingJobs.size} matching jobs`
             }</div>
           `;
           tooltip.style.display = "block";
@@ -357,9 +434,8 @@ function InteractionHandler({
       },
 
       leaveNode: () => {
-        hoverNode.current = null;
-        const graph = sigma.getGraph();
-        applyHighlight(graph, selectedRef.current, selectedRef.current);
+        const state = computeHighlightState(graph, selectedRef.current);
+        applyHighlight(graph, selectedRef.current, selectedRef.current, state);
         sigma.refresh();
 
         const tooltip = tooltipRef.current;
@@ -368,24 +444,34 @@ function InteractionHandler({
 
       clickNode: (event) => {
         if (dragState.current?.isDragging) return;
-        const node = event.node;
 
         const sel = selectedRef.current;
-        if (sel.has(node)) {
-          sel.delete(node);
+        if (sel.has(event.node)) {
+          sel.delete(event.node);
         } else {
-          sel.add(node);
+          sel.add(event.node);
         }
 
-        const matchingJobs = applyHighlight(graph, sel, sel);
-        emitSelection(graph, sel, matchingJobs.size);
+        const state = computeHighlightState(graph, sel);
+        applyHighlight(graph, sel, sel, state);
+
+        const items = [...sel].map((n) => ({
+          label: graph.getNodeAttribute(n, "originalLabel") as string,
+          type: graph.getNodeAttribute(n, "nodeType") as string,
+        }));
+        onSelectionChange({
+          items,
+          matchCount: state.matchingJobs.size,
+          jobList: buildJobList(graph, state.matchingJobs),
+        });
         sigma.refresh();
       },
 
       clickStage: () => {
         selectedRef.current.clear();
-        applyHighlight(graph, selectedRef.current, selectedRef.current);
-        onSelectionChange([], 0);
+        const state = computeHighlightState(graph, selectedRef.current);
+        applyHighlight(graph, selectedRef.current, selectedRef.current, state);
+        onSelectionChange(EMPTY_SELECTION);
         sigma.refresh();
       },
 
@@ -418,7 +504,7 @@ function InteractionHandler({
         }
       },
     });
-  }, [sigma, registerEvents, onSelectionChange, emitSelection]);
+  }, [sigma, registerEvents, onSelectionChange]);
 
   return (
     <div
@@ -434,10 +520,7 @@ export default function GraphViewer() {
   const [activeTypes, setActiveTypes] = useState<Set<string>>(
     new Set(Object.keys(TYPE_COLORS)),
   );
-  const [selection, setSelection] = useState<{
-    items: { label: string; type: string }[];
-    matchCount: number;
-  }>({ items: [], matchCount: 0 });
+  const [selection, setSelection] = useState<SelectionState>(EMPTY_SELECTION);
 
   useEffect(() => {
     fetch("/api/graph")
@@ -449,12 +532,17 @@ export default function GraphViewer() {
   }, []);
 
   const handleSelectionChange = useCallback(
-    (items: { label: string; type: string }[] | string[], matchCount: number) => {
-      if (items.length === 0) {
-        setSelection({ items: [], matchCount: 0 });
-      } else {
-        setSelection({ items: items as { label: string; type: string }[], matchCount });
-      }
+    (next: SelectionState) => {
+      setSelection((prev) => {
+        if (
+          prev.matchCount === next.matchCount &&
+          prev.items.length === next.items.length &&
+          prev.jobList.length === next.jobList.length
+        ) {
+          return prev;
+        }
+        return next;
+      });
     },
     [],
   );
@@ -466,85 +554,83 @@ export default function GraphViewer() {
     return s;
   }, [data]);
 
-  const filteredData = useMemo(() => {
-    if (!data) return null;
-    const nodeSet = new Set(
+  const filteredCounts = useMemo(() => {
+    if (!data) return { nodes: 0, edges: 0 };
+    const visibleNodes = new Set(
       data.nodes.filter((n) => activeTypes.has(n.type)).map((n) => n.id),
     );
     return {
-      nodes: data.nodes.filter((n) => nodeSet.has(n.id)),
+      nodes: visibleNodes.size,
       edges: data.edges.filter(
-        (e) => nodeSet.has(e.source) && nodeSet.has(e.target),
-      ),
+        (e) => visibleNodes.has(e.source) && visibleNodes.has(e.target),
+      ).length,
     };
   }, [data, activeTypes]);
 
-  if (loading || !filteredData)
+  if (loading || !data)
     return (
-      <div className="flex h-[calc(100vh-75px)] items-center justify-center bg-neutral-50 font-sans text-neutral-500">
+      <div className="flex h-screen items-center justify-center bg-neutral-50 font-sans text-neutral-500">
         Loading knowledge graph...
       </div>
     );
 
   return (
-    <div className="relative h-[calc(100vh-75px)] w-full bg-neutral-50">
+    <div className="relative h-screen w-full bg-neutral-50">
       <SigmaContainer
-        style={{ height: "100%", width: "100%" }}
+        style={{ height: "100vh", width: "100%" }}
         settings={{
           defaultEdgeColor: EDGE_DEFAULT_COLOR,
           defaultNodeColor: "#6f767e",
           labelColor: { color: "#33383f" },
-          labelRenderedSizeThreshold: 6,
-          labelFont: "Fellix, Helvetica, ui-sans-serif, system-ui, sans-serif",
+          labelRenderedSizeThreshold: 8,
+          labelFont: "system-ui, -apple-system, sans-serif",
           labelWeight: "500",
           renderEdgeLabels: false,
           enableEdgeEvents: false,
           zIndex: true,
         }}
       >
-        <BuildGraph data={filteredData} />
+        <BuildGraph data={data} />
+        <FilterHandler activeTypes={activeTypes} />
         <InteractionHandler onSelectionChange={handleSelectionChange} />
       </SigmaContainer>
 
-      {/* Selection bar */}
-      {selection.items.length > 0 && (
-        <div className="absolute bottom-5 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-[6px] border border-neutral-200 bg-white/95 px-5 py-3 text-sm text-neutral-900 shadow-lg backdrop-blur-sm">
-          <div className="flex flex-wrap gap-1.5">
-            {selection.items.map((item) => {
-              const color = TYPE_COLORS[item.type] ?? "#6f767e";
-              const isJob = item.type === "job";
-              return (
-                <span
-                  key={item.label}
-                  className="flex items-center gap-1 rounded-[6px] px-2.5 py-1 text-xs"
-                  style={{
-                    background: `${color}15`,
-                    color: isJob ? "#003dff" : color,
-                    border: `1px solid ${color}30`,
-                  }}
-                >
-                  {isJob && (
-                    <span className="text-[10px] opacity-70">JOB</span>
-                  )}
-                  {item.label}
-                </span>
-              );
-            })}
+      {selection.jobList.length > 0 && (
+        <div className="absolute top-4 left-1/2 z-10 -translate-x-1/2 w-[520px] max-h-[70vh] rounded-lg border border-neutral-200 bg-white/95 shadow-xl backdrop-blur-sm overflow-hidden flex flex-col">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-neutral-100">
+            <div className="flex flex-wrap gap-1.5 flex-1">
+              {selection.items.map((item) => {
+                const color = TYPE_COLORS[item.type as NodeType] ?? "#6f767e";
+                return (
+                  <span
+                    key={item.label}
+                    className="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium"
+                    style={{
+                      background: `${color}15`,
+                      color,
+                      border: `1px solid ${color}30`,
+                    }}
+                  >
+                    {item.label}
+                  </span>
+                );
+              })}
+            </div>
+            <span className="text-sm font-bold text-neutral-900 whitespace-nowrap">
+              {selection.matchCount} jobs
+            </span>
           </div>
-          <span className="text-xs text-neutral-400 whitespace-nowrap">
-            &rarr;
-          </span>
-          <span className="whitespace-nowrap font-bold">
-            {selection.matchCount} jobs
-          </span>
-          <span className="ml-1 whitespace-nowrap text-[11px] text-neutral-400">
-            click background to clear
-          </span>
+          <div className="overflow-y-auto divide-y divide-neutral-50">
+            {selection.jobList.map((job) => (
+              <div key={job.id} className="px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 transition-colors">
+                {job.label}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Legend */}
-      <div className="absolute top-4 right-4 z-10 min-w-[180px] rounded-[6px] border border-neutral-200 bg-white/95 p-4 text-sm text-neutral-900 shadow-lg backdrop-blur-sm">
+      <div className="absolute top-4 right-4 z-10 min-w-[180px] rounded-lg border border-neutral-200 bg-white/95 p-4 text-sm text-neutral-900 shadow-lg backdrop-blur-sm">
         <div className="mb-3 text-sm font-bold">Filter</div>
         {Object.entries(TYPE_COLORS).map(([type, color]) => {
           const count = stats[type] ?? 0;
@@ -573,22 +659,20 @@ export default function GraphViewer() {
           );
         })}
         <div className="mt-3 border-t border-neutral-200 pt-3 text-[11px] leading-relaxed text-neutral-400">
-          Click any node to lock<br />
+          Click entity to lock<br />
           Multi-lock for AND filter<br />
-          Mix jobs + entities<br />
           Click background to clear<br />
           Drag nodes to move
         </div>
       </div>
 
-      {/* Title */}
       <div className="absolute top-4 left-4 z-10">
-        <h1 className="text-[22px] font-bold text-neutral-900">
+        <h1 className="text-xl font-bold text-neutral-900">
           StartupJobs Knowledge Graph
         </h1>
         <p className="mt-1 text-xs text-neutral-400">
-          {filteredData.nodes.length} nodes &middot;{" "}
-          {filteredData.edges.length} edges
+          {filteredCounts.nodes} nodes &middot;{" "}
+          {filteredCounts.edges} edges
         </p>
       </div>
     </div>

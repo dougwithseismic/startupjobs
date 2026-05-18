@@ -11,7 +11,6 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { vector } from "drizzle-orm/pg-core";
 
 // --- Job Listings ---
 
@@ -41,7 +40,6 @@ export const jobListings = pgTable(
     titleEn: text("title_en"),
     descriptionEn: text("description_en"),
     contentHash: varchar("content_hash", { length: 64 }).notNull(),
-    embedding: vector("embedding", { dimensions: 768 }),
     extractedAt: timestamp("extracted_at"),
     syncedAt: timestamp("synced_at").defaultNow().notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -49,9 +47,6 @@ export const jobListings = pgTable(
   },
   (table) => [
     uniqueIndex("idx_source_id").on(table.sourceId),
-    index("idx_embedding_hnsw")
-      .using("hnsw", table.embedding.op("vector_cosine_ops"))
-      .with({ m: 24, ef_construction: 200 }),
   ],
 );
 
@@ -68,6 +63,7 @@ export const entityTypeEnum = pgEnum("entity_type", [
   "methodology",
   "certification",
   "soft_skill",
+  "spoken_language",
 ]);
 
 export const relationTypeEnum = pgEnum("relation_type", [

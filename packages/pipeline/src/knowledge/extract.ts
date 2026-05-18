@@ -6,6 +6,7 @@ export interface ExtractedEntities {
   skills: string[];
   technologies: string[];
   languages: string[];
+  spokenLanguages: string[];
   frameworks: string[];
   tools: string[];
   platforms: string[];
@@ -18,6 +19,7 @@ const EMPTY: ExtractedEntities = {
   skills: [],
   technologies: [],
   languages: [],
+  spokenLanguages: [],
   frameworks: [],
   tools: [],
   platforms: [],

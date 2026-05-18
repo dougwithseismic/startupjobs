@@ -5,7 +5,6 @@ import { createDb } from "../db/connection.js";
 import { jobListings, entities, jobEntities } from "../db/schema.js";
 import { runSync } from "../sync/sync-pipeline.js";
 import { hybridSearch } from "../search/hybrid-search.js";
-import { embedTexts } from "../embeddings/ollama.js";
 import { runExtraction } from "../knowledge/extract-pipeline.js";
 
 async function smokeTest() {
@@ -15,33 +14,22 @@ async function smokeTest() {
   await db.execute(sql`SELECT 1`);
   console.log("   OK\n");
 
-  console.log("2. Creating extensions...");
-  await db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
-  console.log("   OK\n");
-
-  console.log("3. Testing Ollama embeddings...");
-  const [testEmb] = await embedTexts(["search_document: test embedding"]);
-  if (!testEmb || testEmb.length !== 768) {
-    throw new Error(`Expected 768 dims, got ${testEmb?.length ?? 0}`);
-  }
-  console.log(`   OK (${testEmb.length} dimensions)\n`);
-
-  console.log("4. Running sync pipeline...");
+  console.log("2. Running sync pipeline...");
   await runSync();
   console.log("");
 
-  console.log("5. Verifying data...");
+  console.log("3. Verifying data...");
   const [row] = await db.select({ total: count() }).from(jobListings);
   const total = row?.total ?? 0;
   console.log(`   ${total} listings in database`);
   if (total === 0) throw new Error("No listings synced!");
   console.log("");
 
-  console.log("6. Running knowledge extraction (first 5 jobs for smoke test)...");
+  console.log("4. Running knowledge extraction (first 5 jobs for smoke test)...");
   await runExtraction(db, { limit: 5 });
   console.log("");
 
-  console.log("7. Verifying knowledge graph...");
+  console.log("5. Verifying knowledge graph...");
   const [entityRow] = await db.select({ total: count() }).from(entities);
   const [relRow] = await db.select({ total: count() }).from(jobEntities);
   console.log(
@@ -49,7 +37,7 @@ async function smokeTest() {
   );
   console.log("");
 
-  console.log('8. Testing hybrid search for "frontend developer"...');
+  console.log('6. Testing vectorless search for "frontend developer"...');
   const results = await hybridSearch(db, {
     query: "frontend developer",
     limit: 5,
@@ -63,7 +51,7 @@ async function smokeTest() {
   }
   console.log("");
 
-  console.log("=== SMOKE TEST PASSED ===");
+  console.log("=== SMOKE TEST PASSED (vectorless pipeline) ===");
 }
 
 smokeTest()
