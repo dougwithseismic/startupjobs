@@ -1,8 +1,4 @@
-import { config } from "dotenv";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-const __dirname = dirname(fileURLToPath(import.meta.url));
-config({ path: resolve(__dirname, "../../../../.env") });
+import "./env.js";
 
 import { createDb } from "../db/connection.js";
 import { runExtraction } from "../knowledge/extract-pipeline.js";

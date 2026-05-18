@@ -2,6 +2,7 @@ import { eq, and } from "drizzle-orm";
 import type { Db } from "../db/connection.js";
 import { entities, jobEntities, jobListings } from "../db/schema.js";
 import type { ExtractedEntities } from "./extract.js";
+import { normalizeEntityName } from "../llm/normalize.js";
 
 type EntityType =
   | "skill"
@@ -40,40 +41,44 @@ const RELATION_MAP: Record<keyof ExtractedEntities, RelationType> = {
   industry: "belongs_to",
 };
 
-function normalize(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9+#.]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-}
+const entityCache = new Map<string, string>();
 
 async function getOrCreateEntity(
   db: Db,
   name: string,
   type: EntityType,
 ): Promise<string> {
-  const normalizedName = normalize(name);
+  const normalized = normalizeEntityName(name);
+  const cacheKey = `${normalized}:${type}`;
 
-  const existing = await db
-    .select({ id: entities.id })
-    .from(entities)
-    .where(and(eq(entities.normalizedName, normalizedName), eq(entities.type, type)))
-    .limit(1);
-
-  if (existing.length > 0) return existing[0]!.id;
+  const cached = entityCache.get(cacheKey);
+  if (cached) return cached;
 
   const [inserted] = await db
     .insert(entities)
-    .values({ name, normalizedName, type })
+    .values({ name, normalizedName: normalized, type })
     .onConflictDoNothing()
     .returning({ id: entities.id });
 
-  if (inserted) return inserted.id;
+  if (inserted) {
+    entityCache.set(cacheKey, inserted.id);
+    return inserted.id;
+  }
 
   const [found] = await db
     .select({ id: entities.id })
     .from(entities)
-    .where(and(eq(entities.normalizedName, normalizedName), eq(entities.type, type)))
+    .where(
+      and(
+        eq(entities.normalizedName, normalized),
+        eq(entities.type, type),
+      ),
+    )
     .limit(1);
 
-  return found!.id;
+  const id = found!.id;
+  entityCache.set(cacheKey, id);
+  return id;
 }
 
 export async function storeExtraction(

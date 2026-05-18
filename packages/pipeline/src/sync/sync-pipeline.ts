@@ -6,9 +6,8 @@ import { jobListings, entities, jobEntities } from "../db/schema.js";
 import { embedTexts } from "../embeddings/ollama.js";
 import { crawlAllOffers } from "../crawler/crawl-offers.js";
 import { computeHash } from "./content-hash.js";
-import { translateListing } from "../knowledge/translate.js";
-import { extractEntities } from "../knowledge/extract.js";
-import { storeExtraction } from "../knowledge/store.js";
+import { runExtraction } from "../knowledge/extract-pipeline.js";
+import type { ExtractedEntities } from "../knowledge/extract.js";
 
 function offerHash(offer: OfferListItem): string {
   return computeHash([
@@ -28,55 +27,37 @@ function buildEnrichedEmbeddingText(
     locations: string | null;
     isRemote: boolean | null;
   },
-  extractedEntities: {
-    skills: string[];
-    technologies: string[];
-    languages: string[];
-    frameworks: string[];
-    tools: string[];
-    platforms: string[];
-    methodologies: string[];
-    soft_skills: string[];
-    industry: string[];
-  },
+  extracted: ExtractedEntities,
 ): string {
   const parts = [
     `search_document: ${job.titleEn ?? job.title} | ${job.company}`,
   ];
 
-  const skills = [
-    ...extractedEntities.skills,
-    ...extractedEntities.technologies,
-  ];
+  const skills = [...extracted.skills, ...extracted.technologies];
   if (skills.length) parts.push(`Skills: ${skills.join(", ")}`);
 
-  const langs = extractedEntities.languages;
-  if (langs.length) parts.push(`Languages: ${langs.join(", ")}`);
+  if (extracted.languages.length)
+    parts.push(`Languages: ${extracted.languages.join(", ")}`);
 
-  const frameworks = extractedEntities.frameworks;
-  if (frameworks.length) parts.push(`Frameworks: ${frameworks.join(", ")}`);
+  if (extracted.frameworks.length)
+    parts.push(`Frameworks: ${extracted.frameworks.join(", ")}`);
 
-  const tools = [
-    ...extractedEntities.tools,
-    ...extractedEntities.platforms,
-  ];
+  const tools = [...extracted.tools, ...extracted.platforms];
   if (tools.length) parts.push(`Tools: ${tools.join(", ")}`);
 
-  if (extractedEntities.industry.length)
-    parts.push(`Industry: ${extractedEntities.industry.join(", ")}`);
+  if (extracted.industry.length)
+    parts.push(`Industry: ${extracted.industry.join(", ")}`);
 
   const seniorities = job.seniorities ?? [];
   if (seniorities.length)
     parts.push(`Seniority: ${seniorities.join(", ")}`);
 
   if (job.isRemote) parts.push("Remote: yes");
-
   if (job.locations) parts.push(`Location: ${job.locations}`);
 
   return parts.join(" | ");
 }
 
-// Step 1: Crawl and upsert raw data (no embedding yet)
 async function crawlAndUpsert(db: Db) {
   const client = new StartupJobsClient();
   let totalUpserted = 0;
@@ -155,81 +136,6 @@ async function crawlAndUpsert(db: Db) {
   );
 }
 
-// Step 2: Translate + extract entities for unprocessed jobs
-async function translateAndExtract(db: Db, limit: number) {
-  const unprocessed = await db
-    .select({
-      id: jobListings.id,
-      sourceId: jobListings.sourceId,
-      title: jobListings.title,
-      description: jobListings.description,
-      company: jobListings.company,
-      detectedLanguage: jobListings.detectedLanguage,
-      titleEn: jobListings.titleEn,
-    })
-    .from(jobListings)
-    .where(isNull(jobListings.extractedAt))
-    .limit(limit);
-
-  console.log(`  ${unprocessed.length} jobs need translate + extract`);
-
-  let processed = 0;
-  let translated = 0;
-
-  for (const job of unprocessed) {
-    try {
-      let titleEn = job.titleEn ?? job.title;
-      let descEn = job.description;
-      let lang = job.detectedLanguage;
-
-      if (!lang) {
-        const translation = await translateListing(
-          job.title,
-          job.description,
-        );
-        titleEn = translation.titleEn;
-        descEn = translation.descriptionEn;
-        lang = translation.detectedLanguage;
-
-        await db
-          .update(jobListings)
-          .set({
-            detectedLanguage: lang,
-            titleEn: translation.titleEn,
-            descriptionEn: translation.descriptionEn,
-          })
-          .where(eq(jobListings.id, job.id));
-
-        if (lang !== "en") translated++;
-      }
-
-      const extraction = await extractEntities(titleEn, descEn, job.company);
-      await storeExtraction(db, job.id, extraction);
-      processed++;
-
-      const summary = Object.entries(extraction)
-        .filter(([, v]) => (v as string[]).length > 0)
-        .map(([k, v]) => `${(v as string[]).length} ${k}`)
-        .join(", ");
-
-      const langTag = lang !== "en" ? ` [${lang}→en]` : "";
-      console.log(
-        `  [${processed}/${unprocessed.length}] ${job.title}${langTag} → ${summary || "no entities"}`,
-      );
-    } catch (err) {
-      console.error(
-        `  [${processed + 1}/${unprocessed.length}] FAILED: ${job.title} — ${err}`,
-      );
-      processed++;
-    }
-  }
-
-  console.log(
-    `  Extract done: ${processed} processed, ${translated} translated`,
-  );
-}
-
-// Step 3: Embed from enriched knowledge graph data
 async function embedFromKnowledgeGraph(db: Db) {
   const jobsToEmbed = await db
     .select({
@@ -245,79 +151,69 @@ async function embedFromKnowledgeGraph(db: Db) {
     .from(jobListings)
     .where(isNull(jobListings.embedding));
 
-  // Also get jobs that were extracted but have old embeddings (from before enrichment)
-  const reembedJobs = await db
-    .select({
-      id: jobListings.id,
-      sourceId: jobListings.sourceId,
-      title: jobListings.title,
-      titleEn: jobListings.titleEn,
-      company: jobListings.company,
-      seniorities: jobListings.seniorities,
-      locations: jobListings.locations,
-      isRemote: jobListings.isRemote,
-    })
-    .from(jobListings)
-    .where(isNull(jobListings.embedding));
-
-  const allJobs = jobsToEmbed;
-  if (allJobs.length === 0) {
+  if (jobsToEmbed.length === 0) {
     console.log("  No jobs need embedding");
     return;
   }
 
-  console.log(`  ${allJobs.length} jobs need embedding`);
+  console.log(`  ${jobsToEmbed.length} jobs need embedding`);
+
+  const jobIds = jobsToEmbed.map((j) => j.id);
+  const allEntityRows = await db
+    .select({
+      jobId: jobEntities.jobId,
+      name: entities.name,
+      type: entities.type,
+    })
+    .from(jobEntities)
+    .innerJoin(entities, eq(entities.id, jobEntities.entityId))
+    .where(inArray(jobEntities.jobId, jobIds));
+
+  const entityMap = new Map<string, ExtractedEntities>();
+  for (const row of allEntityRows) {
+    if (!entityMap.has(row.jobId)) {
+      entityMap.set(row.jobId, {
+        skills: [], technologies: [], languages: [], frameworks: [],
+        tools: [], platforms: [], methodologies: [], soft_skills: [], industry: [],
+      });
+    }
+    const e = entityMap.get(row.jobId)!;
+    const key =
+      row.type === "skill" ? "skills" :
+      row.type === "technology" ? "technologies" :
+      row.type === "methodology" ? "methodologies" :
+      row.type === "soft_skill" ? "soft_skills" :
+      (row.type + "s") as keyof ExtractedEntities;
+    if (key in e) (e[key] as string[]).push(row.name);
+  }
 
   const BATCH_SIZE = 10;
   let embedded = 0;
 
-  for (let i = 0; i < allJobs.length; i += BATCH_SIZE) {
-    const batch = allJobs.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < jobsToEmbed.length; i += BATCH_SIZE) {
+    const batch = jobsToEmbed.slice(i, i + BATCH_SIZE);
 
-    const textsToEmbed: string[] = [];
-
-    for (const job of batch) {
-      const jobEntityRows = await db
-        .select({ name: entities.name, type: entities.type })
-        .from(jobEntities)
-        .innerJoin(entities, eq(entities.id, jobEntities.entityId))
-        .where(eq(jobEntities.jobId, job.id));
-
-      const grouped: Record<string, string[]> = {};
-      for (const row of jobEntityRows) {
-        const key = row.type;
-        if (!grouped[key]) grouped[key] = [];
-        grouped[key]!.push(row.name);
-      }
-
-      const extractedEntities = {
-        skills: grouped["skill"] ?? [],
-        technologies: grouped["technology"] ?? [],
-        languages: grouped["language"] ?? [],
-        frameworks: grouped["framework"] ?? [],
-        tools: grouped["tool"] ?? [],
-        platforms: grouped["platform"] ?? [],
-        methodologies: grouped["methodology"] ?? [],
-        soft_skills: grouped["soft_skill"] ?? [],
-        industry: grouped["industry"] ?? [],
+    const textsToEmbed = batch.map((job) => {
+      const extracted = entityMap.get(job.id) ?? {
+        skills: [], technologies: [], languages: [], frameworks: [],
+        tools: [], platforms: [], methodologies: [], soft_skills: [], industry: [],
       };
-
-      textsToEmbed.push(
-        buildEnrichedEmbeddingText(job, extractedEntities),
-      );
-    }
+      return buildEnrichedEmbeddingText(job, extracted);
+    });
 
     const embeddings = await embedTexts(textsToEmbed);
 
-    for (let j = 0; j < batch.length; j++) {
-      await db
-        .update(jobListings)
-        .set({ embedding: embeddings[j]! })
-        .where(eq(jobListings.id, batch[j]!.id));
-    }
+    await Promise.all(
+      batch.map((job, j) =>
+        db
+          .update(jobListings)
+          .set({ embedding: embeddings[j]! })
+          .where(eq(jobListings.id, job.id)),
+      ),
+    );
 
     embedded += batch.length;
-    console.log(`  Embedded ${embedded}/${allJobs.length}`);
+    console.log(`  Embedded ${embedded}/${jobsToEmbed.length}`);
   }
 
   console.log(`  Embed done: ${embedded} jobs embedded with enriched text`);
@@ -332,7 +228,7 @@ export async function runSync(options?: { extractLimit?: number }) {
   console.log("");
 
   console.log("Step 2/3: Translate & extract...");
-  await translateAndExtract(db, extractLimit);
+  await runExtraction(db, { limit: extractLimit });
   console.log("");
 
   console.log("Step 3/3: Embed from knowledge graph...");

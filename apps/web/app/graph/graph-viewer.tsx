@@ -481,13 +481,13 @@ export default function GraphViewer() {
 
   if (loading || !filteredData)
     return (
-      <div className="flex h-full items-center justify-center bg-neutral-50 font-sans text-neutral-500">
+      <div className="flex h-[calc(100vh-75px)] items-center justify-center bg-neutral-50 font-sans text-neutral-500">
         Loading knowledge graph...
       </div>
     );
 
   return (
-    <div className="relative h-full w-full bg-neutral-50">
+    <div className="relative h-[calc(100vh-75px)] w-full bg-neutral-50">
       <SigmaContainer
         style={{ height: "100%", width: "100%" }}
         settings={{

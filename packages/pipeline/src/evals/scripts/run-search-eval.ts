@@ -1,10 +1,8 @@
-import { config } from "dotenv";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-const __dirname = dirname(fileURLToPath(import.meta.url));
-config({ path: resolve(__dirname, "../../../../../.env") });
+import "../../scripts/env.js";
 
 import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createDb } from "../../db/connection.js";
 import { hybridSearch } from "../../search/hybrid-search.js";
 import { searchQualityScorer } from "../scorers/search-quality.js";
@@ -17,6 +15,7 @@ interface GoldenCase {
   description: string;
 }
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const goldenDataPath = resolve(__dirname, "../datasets/search-golden.json");
 const goldenData = JSON.parse(
   readFileSync(goldenDataPath, "utf-8"),

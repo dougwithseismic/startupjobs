@@ -1,15 +1,10 @@
 import { createScorer } from "@mastra/core/evals";
-
-interface OllamaGenerateResponse {
-  response: string;
-}
+import { ollamaGenerate, parseLlmJson } from "../../llm/ollama-generate.js";
 
 async function askJudge(
   query: string,
   results: Array<{ title: string; company: string }>,
 ): Promise<{ scores: number[]; reasoning: string }> {
-  const baseUrl = process.env["OLLAMA_BASE_URL"] ?? "http://localhost:11434";
-
   const resultsText = results
     .map((r, i) => `${i + 1}. ${r.title} @ ${r.company}`)
     .join("\n");
@@ -26,39 +21,26 @@ For each result, give a score: 2 = highly relevant, 1 = somewhat relevant, 0 = n
 Return ONLY valid JSON (no markdown, no code fences):
 {"scores":[2,1,0,...],"reasoning":"one sentence explaining your overall assessment"}`;
 
-  const response = await fetch(`${baseUrl}/api/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "gemma3:4b",
-      prompt,
-      stream: false,
-      options: { temperature: 0, num_predict: 512 },
-    }),
-  });
-
-  if (!response.ok) {
-    return { scores: results.map(() => 0), reasoning: "Judge failed" };
-  }
-
-  const data = (await response.json()) as OllamaGenerateResponse;
-  const cleaned = data.response
-    .replace(/```(?:json)?\s*/g, "")
-    .replace(/```/g, "");
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-
-  if (!jsonMatch) {
-    return { scores: results.map(() => 0), reasoning: "Parse failed" };
-  }
-
   try {
-    const parsed = JSON.parse(jsonMatch[0]) as {
+    const raw = await ollamaGenerate(prompt, {
+      model: "gemma3:4b",
+      maxTokens: 512,
+    });
+
+    const parsed = parseLlmJson<{
       scores?: number[];
       reasoning?: string;
-    };
+    }>(raw);
+
+    if (!parsed) {
+      return { scores: results.map(() => 0), reasoning: "Parse failed" };
+    }
+
     return {
       scores: Array.isArray(parsed.scores)
-        ? parsed.scores.map((s) => (typeof s === "number" ? Math.min(2, Math.max(0, s)) : 0))
+        ? parsed.scores.map((s) =>
+            typeof s === "number" ? Math.min(2, Math.max(0, s)) : 0,
+          )
         : results.map(() => 0),
       reasoning:
         typeof parsed.reasoning === "string"
@@ -66,7 +48,7 @@ Return ONLY valid JSON (no markdown, no code fences):
           : "No reasoning provided",
     };
   } catch {
-    return { scores: results.map(() => 0), reasoning: "JSON parse error" };
+    return { scores: results.map(() => 0), reasoning: "Judge failed" };
   }
 }
 
@@ -90,7 +72,6 @@ export const relevanceJudgeScorer = createScorer({
       normalizedScore: maxPossible > 0 ? totalScore / maxPossible : 0,
       scores: judgeResult.scores,
       reasoning: judgeResult.reasoning,
-      totalResults: searchResults.length,
     };
   })
   .generateScore(({ results }) => {
@@ -98,6 +79,5 @@ export const relevanceJudgeScorer = createScorer({
   })
   .generateReason(({ results, score }) => {
     const { reasoning, scores } = results.analyzeStepResult!;
-    const dist = `[${scores.join(",")}]`;
-    return `Score: ${score.toFixed(3)} | Grades: ${dist} | ${reasoning}`;
+    return `Score: ${score.toFixed(3)} | Grades: [${scores.join(",")}] | ${reasoning}`;
   });

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { Db } from "../db/connection.js";
 import { embedTexts } from "../embeddings/ollama.js";
+import { normalizeEntityName } from "../llm/normalize.js";
 
 export interface SearchOptions {
   query: string;
@@ -97,9 +98,7 @@ export async function hybridSearch(
     ...(options.requiredTech ?? []),
     ...(options.industry ?? []),
   ];
-  const normalizedFilters = allFilters.map((f) =>
-    f.toLowerCase().replace(/[^a-z0-9+#.]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, ""),
-  );
+  const normalizedFilters = allFilters.map(normalizeEntityName);
   const pgArray = `{${normalizedFilters.join(",")}}`;
 
   const results = await db.execute(sql`

@@ -1,9 +1,8 @@
-import { config } from "dotenv";
+import "./env.js";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFileSync } from "node:fs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
-config({ path: resolve(__dirname, "../../../../.env") });
 
 import { sql } from "drizzle-orm";
 import { createDb } from "../db/connection.js";

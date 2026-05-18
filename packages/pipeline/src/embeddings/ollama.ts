@@ -1,3 +1,5 @@
+import { getOllamaBaseUrl } from "../llm/ollama-generate.js";
+
 interface OllamaEmbedResponse {
   model: string;
   embeddings: number[][];
@@ -58,24 +60,35 @@ export async function embedTexts(
   texts: string[],
   options?: { model?: string; baseUrl?: string },
 ): Promise<number[][]> {
-  const baseUrl =
-    options?.baseUrl ??
-    process.env["OLLAMA_BASE_URL"] ??
-    "http://localhost:11434";
+  const baseUrl = getOllamaBaseUrl(options?.baseUrl);
   const model = options?.model ?? "nomic-embed-text";
 
-  const results: number[][] = [];
+  const singleChunkIndices: number[] = [];
+  const singleChunkTexts: string[] = [];
+  const multiChunkEntries: Array<{ index: number; chunks: string[] }> = [];
 
-  for (const text of texts) {
-    const chunks = chunkText(text);
-
+  for (let i = 0; i < texts.length; i++) {
+    const chunks = chunkText(texts[i]!);
     if (chunks.length === 1) {
-      const [embedding] = await rawEmbed(chunks, model, baseUrl);
-      results.push(embedding!);
+      singleChunkIndices.push(i);
+      singleChunkTexts.push(chunks[0]!);
     } else {
-      const chunkEmbeddings = await rawEmbed(chunks, model, baseUrl);
-      results.push(averageVectors(chunkEmbeddings));
+      multiChunkEntries.push({ index: i, chunks });
     }
+  }
+
+  const results: number[][] = new Array(texts.length);
+
+  if (singleChunkTexts.length > 0) {
+    const batchEmbeddings = await rawEmbed(singleChunkTexts, model, baseUrl);
+    for (let i = 0; i < singleChunkIndices.length; i++) {
+      results[singleChunkIndices[i]!] = batchEmbeddings[i]!;
+    }
+  }
+
+  for (const { index, chunks } of multiChunkEntries) {
+    const chunkEmbeddings = await rawEmbed(chunks, model, baseUrl);
+    results[index] = averageVectors(chunkEmbeddings);
   }
 
   return results;
